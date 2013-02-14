@@ -1,9 +1,9 @@
 {
-    "name": "ctp_test",
+    "name": "ctp-micropilot",
     "license": "MPL 2.0",
     "author": "",
     "version": "0.1",
-    "fullName": "ctp_test",
+    "fullName": "ctp-micropilot",
     "id": "jid1-Jg2APhBZEgVoAw",
-    "description": "a basic add-on"
+    "description": "testing obs svc messages for ctp"
 }
