@@ -6,5 +6,12 @@
     "version": "0.1",
     "fullName": "ctp-micropilot",
     "id": "ctp-micropilot@ux.mozilla.com",
-    "description": "testing obs svc messages for ctp"
+    "description": "messages for ctp project",
+    "preferences": [{
+        "name": "Name",
+        "title": "users first name",
+        "description": "Enter first name of participant",
+        "type": "string",
+        "value": "Enter first name here"
+    }]
 }
