@@ -60,7 +60,6 @@ exports.metadata = {
   }
 };
 
-
 /** Return first-successful reqiured module from a list of paths
  *
  * @return {object} required module
@@ -84,14 +83,26 @@ function requireAny(paths,msg) {
 };
 
 
+/**! list of okay statuses */
+const GOODSTATUS = {
+  //"O": 0,
+  "200": 200,
+  "201": 201,
+  "202": 202,
+  "203": 203,
+  "204": 204
+}
+
+
+
 /*! this gets them into the xpi tarball, if they are present
   Don't use the comment/regex trick because comments don't go
   through to covered code :/
 */
 try {
   require("indexed-db");
-  //require("./indexed-db-17");
-} catch (e){};
+  require("./indexed-db-17");
+} catch (e){}
 
 /*!*/
 const xulApp = require('sdk/system/xul-app');
@@ -129,7 +140,7 @@ let uu = exports.uu = function(){
   * @memberOf main
   * @name UPLOAD_URL
   */
-let UPLOAD_URL = exports.UPLOAD_URL = "https://testpilot.mozillalabs.com/submit/";
+let UPLOAD_URL = exports.UPLOAD_URL = "https://testpilot.mozillalabs.com/submit/testpilot_micropilot_";
 
 /**!*/
 // Warning: micropilot steals the simple store 'micropilot' key by name
@@ -357,7 +368,7 @@ let Micropilot = exports.Micropilot = Class({
 
     // todo, what if it's not jsonable?
     JSON.stringify(data);
-    myprefs.logtoconsole && console.log("willrecord:", JSON.stringify(data));
+    myprefs.micropilotlog && console.log("micropilot-record:", JSON.stringify(data));
     return resolve(this.eventstore.add(data));
   },
 
@@ -391,7 +402,7 @@ let Micropilot = exports.Micropilot = Class({
     // iff!
     if (duration){
       // should this allow / mix all fuse options?
-      this.fuse = Fuse({start: this.startdate,duration:duration});
+      this.fuse = Fuse({start: this.startdate,duration:duration, resolve_this: that});
       return this.fuse;
     } else {
       // no duration, so infinite, so nothing to resolve.
@@ -437,7 +448,12 @@ let Micropilot = exports.Micropilot = Class({
     if (this._watched[topic]) return
 
     let that = this;
-    let cb = this._watchfn || function(subject) {that.record(subject)};
+    let cb;
+    if (this._watchfn !== undefined){
+      cb = function(subject) that._watchfn.call(that,topic,subject);
+    } else {
+      cb = function(subject) {that.record({"msg":topic,ts:Date.now(),"data":subject})};
+    }
     let o = observer.add(topic,cb); // add to global watch list
     this._watched[topic] = cb;
   },
@@ -510,7 +526,9 @@ let Micropilot = exports.Micropilot = Class({
     let { promise, resolve } = defer();
     let {url,maxtries,interval,killaddon:killpref} = options;
     let that = this;
-    url = url || UPLOAD_URL + mtp.studyname;
+    url = url || (UPLOAD_URL + that.studyid);
+    myprefs.micropilotlog && console.log("micropilot-ezupload:",url );
+
     maxtries = maxtries || 3
     interval = interval || 60 * 60 * 1000; // 60 minutes
 
@@ -519,6 +537,7 @@ let Micropilot = exports.Micropilot = Class({
         let p = that.stop();
         p = that.clear();
         if (killpref) {
+          console.log("micropilot: killpref on!")
           resolve(p.then(killaddon));   // stop the study, clear the data, uninstall the addon.
         } else {
           resolve(p)
@@ -531,9 +550,11 @@ let Micropilot = exports.Micropilot = Class({
       that._config.uploadcounter += 1;
 
       that.upload(url).then(function(response){
-        if (response.status != "200") {  // try again in interval ms
+        if (! GOODSTATUS[response.status]) {  // try again in interval ms
+          myprefs.micropilotlog && console.log("micropilot-response-bad:", response.status, "retrying in:", interval );
           require('timers').setTimeout(function(){myupload()}, interval)
         } else {
+          myprefs.micropilotlog && console.log("micropilot-ezupload-success")
           mycleanup();
         }
       })
@@ -567,17 +588,22 @@ let Micropilot = exports.Micropilot = Class({
     let { promise, resolve } = defer();
     let uploadid = options.uploadid || uu(); // specific to the upload
     this.data().then(function(data){
+      myprefs.micropilotlog && console.log("micropilot-willupload-data:", JSON.stringify(data));
       let payload = {events:data};
       payload.userdata = snoop();
       payload.ts = Date.now();
       payload.uploadid = uploadid;
       payload.personid = that._config.personid;
+      myprefs.micropilotlog && console.log("micropilot-willupload-content:", JSON.stringify(payload));
+
       let R = Request({
         url: url,
         content: payload,
         contentType: "application/json",
         onComplete: function (response) {
-          resolve(response) }
+          myprefs.micropilotlog && console.log("micropilot-upload-response:",response.status);
+          myprefs.micropilotlog && console.log("micropilot-upload-response:",response.text);
+          resolve(response) },
       });
       if (simulate) {
         resolve(R);
@@ -628,7 +654,7 @@ let Fuse = exports.Fuse = Class({
     * - `start`:  start time for the fuse
     * - `duration`: how long to run.
     * - `pulseinterval`:  if defined, use a `setInterval` timer (see below)
-    * - `resolve_this`:  the `this` passed into the `then` during resolution
+    * - `resolve_this`:  the `this` passed into the `then` during resolution (default undefined)
     * - `pulsefn`:  if `setInterval` timer, run this function during every `pulse`
     *
     * `setInterval` vs. `setTimeout`:  Fuse is normally a `setTimeout`.  If you
@@ -663,7 +689,6 @@ let Fuse = exports.Fuse = Class({
     */
   initialize: function(options){
     let {start,duration,pulseinterval,resolve_this,pulsefn} = options;
-    if (resolve_this === undefined) resolve_this = this;
     this.pulseinterval =  pulseinterval;
     let that = this;
     this.start = start;
@@ -676,11 +701,14 @@ let Fuse = exports.Fuse = Class({
     // more easily, but setTimeout is much more precise.
     if (pulseinterval){
       this.timerid = timers.setInterval(function(){
+        if (that.checking) {
+          return;  // prevent races
+        }
         that.checking = true;
         if (pulsefn) {pulsefn(that)}
         if (! duration) return;
         if (Date.now() >= (that.start + that.duration)){
-          that.resolve(that.resolve_this);
+          that.resolve(resolve_this);
           that.stop();
         }
         that.checking=false;
@@ -690,11 +718,11 @@ let Fuse = exports.Fuse = Class({
       that.checking=false;
       let timerunningsofar = (Date.now() - this.start);
       if (duration <= timerunningsofar) { // really short intervals
-        this.resolve(resolve_this);
+        that.resolve(resolve_this);
         this.stop();
       } else {
         this.timerid = timers.setTimeout(function(){
-          that.resolve(that.resolve_this);
+          that.resolve(resolve_this);
           that.stop();
         }, duration - timerunningsofar);
       }
@@ -716,7 +744,9 @@ let Fuse = exports.Fuse = Class({
     * @name stop
     */
   stop: function(){
-    if (this.timerid) timers.clearTimeout(this.timerid);
+    if (this.timerid) {
+      timers.clearTimeout(this.timerid);
+    }
     return this;
   }
 });
@@ -729,5 +759,6 @@ let Fuse = exports.Fuse = Class({
   */
 let killaddon = exports.killaddon = function(){
   let id = require('self').id;
+  console.log("attempting to remove addon:", id);
   require("sdk/addon/installer").uninstall(id);
 }
