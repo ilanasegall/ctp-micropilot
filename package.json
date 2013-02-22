@@ -8,7 +8,7 @@
     "id": "ctp-micropilot@ux.mozilla.com",
     "description": "messages for ctp project",
     "preferences": [{
-        "name": "Name",
+        "name": "firstname",
         "title": "users first name",
         "description": "Enter first name of participant",
         "type": "string",
