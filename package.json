@@ -1,17 +1,26 @@
 {
-    "name": "ctp-micropilot",
-    "license": "MPL 2.0",
-    "author": "Ilana Segall",
-    "source": "https://github.com/ilanasegall/ctp-micropilot",
-    "version": "0.1",
-    "fullName": "ctp-micropilot",
-    "id": "ctp-micropilot@ux.mozilla.com",
-    "description": "messages for ctp project",
-    "preferences": [{
-        "name": "firstname",
-        "title": "users first name",
-        "description": "Enter first name of participant",
-        "type": "string",
-        "value": "Enter first name here"
-    }]
+  "name": "ctp-micropilot",
+  "license": "MPL 2.0",
+  "author": "Ilana Segall",
+  "source": "https://github.com/ilanasegall/ctp-micropilot",
+  "version": "0.2",
+  "fullName": "ctp-micropilot",
+  "id": "ctp-micropilot@ux.mozilla.com",
+  "description": "testing obs svc messages for ctp",
+  "dependencies": [
+    "micropilot"
+  ],
+  "preferences": [
+    {
+      "name": "getuseremail",
+      "label": "update",
+      "title": "Study Participant Email",
+      "type": "control"
+    }
+  ],
+  "volo": {
+    "dependencies": {
+      "packages/micropilot": "github:gregglind/micropilot/v0.5"
+    }
+  }
 }
