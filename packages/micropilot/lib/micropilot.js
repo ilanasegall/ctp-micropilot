@@ -587,7 +587,8 @@ let Micropilot = exports.Micropilot = Class({
     let simulate = options.simulate;
     let { promise, resolve } = defer();
     let uploadid = options.uploadid || uu(); // specific to the upload
-    this.data().then(function(data){
+    this.data().then(function(data){   
+
       myprefs.micropilotlog && console.log("micropilot-willupload-data:", JSON.stringify(data));
       let payload = {events:data};
       payload.userdata = snoop();
@@ -598,7 +599,7 @@ let Micropilot = exports.Micropilot = Class({
 
       let R = Request({
         url: url,
-        content: payload,
+        content: encodeURIComponent(JSON.stringify(payload)),
         contentType: "application/json",
         onComplete: function (response) {
           myprefs.micropilotlog && console.log("micropilot-upload-response:",response.status);
