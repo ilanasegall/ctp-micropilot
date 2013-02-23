@@ -83,18 +83,6 @@ function requireAny(paths,msg) {
 };
 
 
-/**! list of okay statuses */
-const GOODSTATUS = {
-  //"O": 0,
-  "200": 200,
-  "201": 201,
-  "202": 202,
-  "203": 203,
-  "204": 204
-}
-
-
-
 /*! this gets them into the xpi tarball, if they are present
   Don't use the comment/regex trick because comments don't go
   through to covered code :/
@@ -105,6 +93,7 @@ try {
 } catch (e){}
 
 /*!*/
+const { Cu } = require("chrome");
 const xulApp = require('sdk/system/xul-app');
 
 const { Class } = require('sdk/core/heritage');
@@ -135,6 +124,21 @@ let uu = exports.uu = function(){
         return uuid().number.slice(1,-1)
 };
 
+
+/** Object with "passing" HTTP status codes.
+ *
+ * @memberOf main
+ * @name GOODSTATUS
+ */
+const GOODSTATUS = exports.GOODSTATUS = {
+  //"O": 0,
+  "200": 200,
+  "201": 201,
+  "202": 202,
+  "203": 203,
+  "204": 204
+};
+
 /** Upload url
   *
   * @memberOf main
@@ -153,7 +157,19 @@ if (storage.micropilot===undefined) storage.micropilot = {};
   * @memberOf main
   * @name requestError
   */
-let requestError = function(evt) console.error(evt.target.errorCode);
+let requestError = function(evt) console.error("ERROR",evt.target.errorCode);
+let requestBlocked = function(evt) console.log("BLOCKED",evt);
+
+
+/** log IFF `prefs.micropilot` is set.
+  *
+  * @return undefined
+  * @name microlog
+  */
+let microlog = exports.microlog = function(){
+    myprefs.micropilotlog  && console.log.apply(null, arguments);
+}
+
 
 
 /**
@@ -192,16 +208,19 @@ let EventStore = exports.EventStore = Class({
     let that = this;
     let {promise, resolve} = defer();
     // TODO each EventStore has different Db, so the createObjectStore will work.  Is this gross?
-    let request = indexedDB.open("micropilot-"+that.collection,1);
-    request.onerror = requestError;
-    request.onupgradeneeded = function (event) {
-      let objectStore = request.result.createObjectStore(that.collection,
+    let req = indexedDB.open("micropilot-"+that.collection,1);
+    req.onerror = requestError;
+    req.onupgradeneeded = function (event) {
+      let objectStore = req.result.createObjectStore(that.collection,
         {keyPath: that.keyname, autoIncrement: true });
+      microlog("micropilot-object-store-made:", that.collection )
     };
     // called after onupgradeneeded
-    request.onsuccess = function(event) {
-      resolve(request.result);
+    req.onsuccess = function(event) {
+      resolve(req.result);
     };
+    req.onblocked = requestBlocked;
+
     return promise
   },
   /** promises to add data to the autoincrementing objectStore.
@@ -218,13 +237,15 @@ let EventStore = exports.EventStore = Class({
     let that = this;
     let {promise, resolve} = defer();
     this.db().then(function(db){
-      let request = db.transaction([that.collection], "readwrite").
+      let req = db.transaction([that.collection], "readwrite").
         objectStore(that.collection).add(data);
-      request.onsuccess = function (evt) {
+      req.onsuccess = function (evt) {
         let newkey = evt.target.result;
         resolve({id: newkey, data:data});
       };
-      request.onerror = requestError;
+      req.onerror = requestError;
+      req.onblocked = requestBlocked;
+
     })
     return promise
   },
@@ -257,6 +278,8 @@ let EventStore = exports.EventStore = Class({
         }
       };
       req.onerror = requestError;
+      req.onblocked = requestBlocked;
+
     })
     return promise;
   },
@@ -270,12 +293,12 @@ let EventStore = exports.EventStore = Class({
   clear: function(){
     let that = this;
     let {promise, resolve} = defer();
-    let request = indexedDB.deleteDatabase("micropilot-"+that.collection,1);
-    request.onerror = requestError;
-    // called after onupgradeneeded
-    request.onsuccess = function(event) {
-      resolve(request.result);
-    };
+    let req = indexedDB.deleteDatabase("micropilot-"+that.collection,1);
+    req.onsuccess = function(event) {
+      resolve(req.result);
+    }
+    req.onerror = requestError;
+    req.onblocked = requestBlocked;
     return promise;
   }
 });
@@ -351,9 +374,7 @@ let Micropilot = exports.Micropilot = Class({
     * @name clear
     * @return promise
     */
-  clear: function(){
-    return this.eventstore.clear();
-  },
+  clear: function() this.eventstore.clear(),
 
   /** promise of `EventStore.add`, which is {id:<>,data:<>}
     * unless record "doesn't happen" because of non-running
@@ -368,8 +389,8 @@ let Micropilot = exports.Micropilot = Class({
 
     // todo, what if it's not jsonable?
     JSON.stringify(data);
-    myprefs.micropilotlog && console.log("micropilot-record:", JSON.stringify(data));
-    return resolve(this.eventstore.add(data));
+    microlog("micropilot-record:", JSON.stringify(data));
+    return this.eventstore.add(data)
   },
 
   /** promise the study (setting a Fuse)
@@ -527,7 +548,7 @@ let Micropilot = exports.Micropilot = Class({
     let {url,maxtries,interval,killaddon:killpref} = options;
     let that = this;
     url = url || (UPLOAD_URL + that.studyid);
-    myprefs.micropilotlog && console.log("micropilot-ezupload:",url );
+    microlog("micropilot-ezupload:",url );
 
     maxtries = maxtries || 3
     interval = interval || 60 * 60 * 1000; // 60 minutes
@@ -537,7 +558,7 @@ let Micropilot = exports.Micropilot = Class({
         let p = that.stop();
         p = that.clear();
         if (killpref) {
-          console.log("micropilot: killpref on!")
+          microlog("micropilot: killpref on!")
           resolve(p.then(killaddon));   // stop the study, clear the data, uninstall the addon.
         } else {
           resolve(p)
@@ -551,10 +572,10 @@ let Micropilot = exports.Micropilot = Class({
 
       that.upload(url).then(function(response){
         if (! GOODSTATUS[response.status]) {  // try again in interval ms
-          myprefs.micropilotlog && console.log("micropilot-response-bad:", response.status, "retrying in:", interval );
+          microlog("micropilot-response-bad:", response.status, "retrying in:", interval );
           require('timers').setTimeout(function(){myupload()}, interval)
         } else {
-          myprefs.micropilotlog && console.log("micropilot-ezupload-success")
+          microlog("micropilot-ezupload-success")
           mycleanup();
         }
       })
@@ -587,30 +608,33 @@ let Micropilot = exports.Micropilot = Class({
     let simulate = options.simulate;
     let { promise, resolve } = defer();
     let uploadid = options.uploadid || uu(); // specific to the upload
-    this.data().then(function(data){   
-
-      myprefs.micropilotlog && console.log("micropilot-willupload-data:", JSON.stringify(data));
+    this.data().then(function(data){
+      microlog("micropilot-willupload-data:", JSON.stringify(data));
       let payload = {events:data};
-      payload.userdata = snoop();
       payload.ts = Date.now();
       payload.uploadid = uploadid;
       payload.personid = that._config.personid;
-      myprefs.micropilotlog && console.log("micropilot-willupload-content:", JSON.stringify(payload));
+      snoop().then(function(userdata){
+        payload.userdata = userdata;
+        microlog("micropilot-willupload-content:", JSON.stringify(payload));
+        let R = Request({
+          url: url,
+          headers: {
+          },
+          content: JSON.stringify(payload),
+          contentType: "application/json",
 
-      let R = Request({
-        url: url,
-        content: encodeURIComponent(JSON.stringify(payload)),
-        contentType: "application/json",
-        onComplete: function (response) {
-          myprefs.micropilotlog && console.log("micropilot-upload-response:",response.status);
-          myprefs.micropilotlog && console.log("micropilot-upload-response:",response.text);
-          resolve(response) },
-      });
-      if (simulate) {
-        resolve(R);
-      } else {
-        R.post();
-      }
+          onComplete: function (response) {
+            microlog("micropilot-upload-response:",response.status);
+            microlog("micropilot-upload-response:",response.text);
+            resolve(response) },
+        });
+        if (simulate) {
+          resolve(R);
+        } else {
+          R.post();
+        }
+      })
     });
     return promise;
   }
@@ -619,12 +643,13 @@ let Micropilot = exports.Micropilot = Class({
 
 /** gather general user data, including addons, os, etc.
   *
-  * Properties:  appname, location, fxVersion, os, updateChannel, addons
-  * @return {object} userdata
+  * Properties:  appname, location, fxVersion, os, updateChannel, addons list
+  * @return promise promise of userdata
   * @name snoop
   * @memberOf main
   */
 let snoop = exports.snoop = function(){
+  let { promise, resolve } = defer();
   let LOCALE_PREF = "general.useragent.locale";
   let UPDATE_CHANNEL_PREF = "app.update.channel";
   let xa = require("xul-app");
@@ -636,8 +661,20 @@ let snoop = exports.snoop = function(){
   u.fxVersion = xa.version;
   u.os = require('runtime').os;
   u.updateChannel = prefs.get(UPDATE_CHANNEL_PREF)
-  u.addons = [] // get this in some sync way? or move this all to async?
-  return u;
+
+  let { AddonManager } = Cu.import("resource://gre/modules/AddonManager.jsm");
+  u.addons = [];
+  AddonManager.getAllAddons(function(addonList){
+    Array.forEach(addonList,function(a){
+      let o = {};
+      ['id','name','appDisabled','isActive','type','userDisabled'].forEach(function(k){
+        o[k] = a[k]
+      })
+      u.addons.push(o);
+    })
+    resolve(u);
+  })
+  return promise;
 }
 
 /** Fuse Heritage Class
@@ -760,6 +797,6 @@ let Fuse = exports.Fuse = Class({
   */
 let killaddon = exports.killaddon = function(){
   let id = require('self').id;
-  console.log("attempting to remove addon:", id);
+  microlog("attempting to remove addon:", id);
   require("sdk/addon/installer").uninstall(id);
 }
