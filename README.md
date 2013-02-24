@@ -24,3 +24,16 @@ Missed the useremail collection box?
 ```
 
 
+### Change the study params for LOCAL testing?
+
+```
+# duration in sec, uploadinterval in sec.
+cfx run --static-args '{"duration":20,"uploadurl":"http://localhost:5000/testtest","uploadinterval": 120}'
+
+#OR
+
+cfx xpi --static-args '{"duration":20,"uploadurl":"http://localhost:5000/testtest","uploadinterval": 120}'
+
+```
+
+
