@@ -471,9 +471,9 @@ let Micropilot = exports.Micropilot = Class({
     let that = this;
     let cb;
     if (this._watchfn !== undefined){
-      cb = function(subject) that._watchfn.call(that,topic,subject);
+      cb = function(subject,data) that._watchfn.call(that,topic,subject,data);
     } else {
-      cb = function(subject) {that.record({"msg":topic,ts:Date.now(),"data":subject})};
+      cb = function(subject,data) {that.record({"msg":topic,ts:Date.now(),"subject":subject,"data":data})};
     }
     let o = observer.add(topic,cb); // add to global watch list
     this._watched[topic] = cb;
@@ -571,11 +571,14 @@ let Micropilot = exports.Micropilot = Class({
       that._config.uploadcounter += 1;
 
       that.upload(url).then(function(response){
+        let dump_response = function(response){
+          return JSON.stringify({status: response.status, text: response.text})
+        }
         if (! GOODSTATUS[response.status]) {  // try again in interval ms
-          microlog("micropilot-response-bad:", response.status, "retrying in:", interval );
+          microlog("micropilot-ezupload-fail:", dump_response(response),"retrying in:", interval);
           require('timers').setTimeout(function(){myupload()}, interval)
         } else {
-          microlog("micropilot-ezupload-success")
+          microlog("micropilot-ezupload-success:",dump_response(response))
           mycleanup();
         }
       })
